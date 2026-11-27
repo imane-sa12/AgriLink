@@ -1,24 +1,29 @@
-
 package com.agrilink.auth.service;
 
 import org.springframework.http.HttpStatus;
-import com.agrilink.auth.security.JwtService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import com.agrilink.auth.dto.InscriptionAgriculteurRequest;
-import com.agrilink.auth.entity.Agriculteur;
-import com.agrilink.auth.enums.StatutCompte;
-import com.agrilink.auth.repository.AgriculteurRepository;
-import com.agrilink.auth.repository.PersonneRepository;
-
 import com.agrilink.auth.dto.ConnexionRequest;
 import com.agrilink.auth.dto.ConnexionResponse;
-import com.agrilink.auth.entity.ExpertAgricole;
+import com.agrilink.auth.dto.InscriptionAgriculteurRequest;
+import com.agrilink.auth.dto.InscriptionExpertRequest;
+
 import com.agrilink.auth.entity.Administrateur;
+import com.agrilink.auth.entity.Agriculteur;
+import com.agrilink.auth.entity.ExpertAgricole;
 import com.agrilink.auth.entity.Personne;
+
+import com.agrilink.auth.enums.StatutCompte;
+import com.agrilink.auth.enums.StatutValidation;
+
+import com.agrilink.auth.repository.AgriculteurRepository;
+import com.agrilink.auth.repository.ExpertAgricoleRepository;
+import com.agrilink.auth.repository.PersonneRepository;
+
+import com.agrilink.auth.security.JwtService;
 
 @Service
 // ce classe contient la logique metier 
@@ -28,15 +33,16 @@ public class AuthService {
 	private final PersonneRepository personneRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final JwtService jwtService;
+	private final ExpertAgricoleRepository expertAgricoleRepository;
 
-	public AuthService(AgriculteurRepository agriculteurRepository, PersonneRepository personneRepository,
-			PasswordEncoder passwordEncoder , JwtService jwtService) {
+	public AuthService(AgriculteurRepository agriculteurRepository, ExpertAgricoleRepository expertAgricoleRepository,
+			PersonneRepository personneRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
 
 		this.agriculteurRepository = agriculteurRepository;
+		this.expertAgricoleRepository = expertAgricoleRepository;
 		this.personneRepository = personneRepository;
 		this.passwordEncoder = passwordEncoder;
-	    this.jwtService = jwtService;
-
+		this.jwtService = jwtService;
 	}
 
 	@Transactional
@@ -81,6 +87,41 @@ public class AuthService {
 		agriculteurRepository.save(agriculteur);
 	}
 
+	@Transactional
+	public void inscrireExpert(InscriptionExpertRequest request) {
+
+		// 1. Normaliser et vérifier l'email
+		String email = request.getEmail().trim().toLowerCase();
+
+		if (personneRepository.existsByEmail(email)) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "Cette adresse email est déjà utilisée.");
+		}
+
+		// 2. Créer le compte Expert
+		ExpertAgricole expert = new ExpertAgricole();
+
+		expert.setNom(request.getNom());
+		expert.setPrenom(request.getPrenom());
+		expert.setEmail(email);
+		expert.setTelephone(request.getTelephone());
+
+		// 3. Encoder le mot de passe
+		expert.setMotDePasse(passwordEncoder.encode(request.getMotDePasse()));
+
+		// 4. Le compte attend la validation de l'administrateur
+		expert.setStatutCompte(StatutCompte.EN_ATTENTE_VALIDATION);
+		// Statut de validation de l'expert.
+		expert.setStatutValidation(StatutValidation.EN_ATTENTE);
+
+		// 5. Informations spécifiques à l'expert
+		expert.setBio(request.getBio());
+		expert.setDisponible(false);
+		expert.setChargeActuelle(0);
+
+		// 6. Enregistrer l'expert
+		expertAgricoleRepository.save(expert);
+	}
+
 	public ConnexionResponse connecter(ConnexionRequest request) {
 
 		// 1. Rechercher la personne par email
@@ -107,6 +148,14 @@ public class AuthService {
 		if (personne instanceof Agriculteur) {
 			role = "AGRICULTEUR";
 		} else if (personne instanceof ExpertAgricole) {
+
+			ExpertAgricole expert = (ExpertAgricole) personne;
+
+			// Vérifier également la validation de l'expert
+			if (expert.getStatutValidation() != StatutValidation.VALIDE) {
+				throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Votre compte expert n'est pas encore validé.");
+			}
+
 			role = "EXPERT";
 		} else if (personne instanceof Administrateur) {
 			role = "ADMIN";
@@ -115,21 +164,11 @@ public class AuthService {
 		}
 
 		// 5. Générer le token JWT
-		String token = jwtService.genererToken(
-		        personne.getIdUtilisateur(),
-		        personne.getEmail(),
-		        role
-		);
+		String token = jwtService.genererToken(personne.getIdUtilisateur(), personne.getEmail(), role);
 
 		// 6. Retourner les informations et le token
-		return new ConnexionResponse(
-		        personne.getIdUtilisateur(),
-		        personne.getNom(),
-		        personne.getPrenom(),
-		        personne.getEmail(),
-		        role,
-		        token
-		);
+		return new ConnexionResponse(personne.getIdUtilisateur(), personne.getNom(), personne.getPrenom(),
+				personne.getEmail(), role, token);
 	}
 
 }

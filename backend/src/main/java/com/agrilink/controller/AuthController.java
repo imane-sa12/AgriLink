@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import com.agrilink.auth.dto.InscriptionAgriculteurRequest;
 import com.agrilink.auth.service.AuthService;
+import com.agrilink.auth.dto.InscriptionExpertRequest;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -38,5 +39,14 @@ public class AuthController {
 		ConnexionResponse response = authService.connecter(request);
 
 		return ResponseEntity.ok(response);
+	}
+	// Inscription d'un expert agricole
+	@PostMapping("/inscription/expert")
+	public ResponseEntity<String> inscrireExpert(@RequestBody InscriptionExpertRequest request) {
+
+		authService.inscrireExpert(request);
+
+		return ResponseEntity.status(HttpStatus.CREATED)
+				.body("Votre demande d'inscription a été envoyée. En attente de validation.");
 	}
 }
